@@ -46,6 +46,11 @@
   .mini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mini span { color: var(--muted); font-size: 14px; }
   .mini i { font-style: normal; text-align: right; color: var(--blue); font-weight: 600; }
+  .mini em { grid-column: 1 / -1; font-style: normal; color: #b23c00; font-size: 14px; }
+  .quote { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .quote label { color: var(--muted); white-space: nowrap; }
+  .quote input { flex: 1; min-width: 0; font: inherit; padding: 8px 10px;
+                 border: 1px solid var(--line); border-radius: 8px; }
   .list button { display: block; width: 100%; text-align: left; margin-bottom: 6px;
                  border: 1px solid var(--line); color: #1d2329; font-weight: 400; }
   .empty { text-align: center; color: var(--muted); margin-top: 40px; }
@@ -183,16 +188,22 @@ function forget() {
   try { localStorage.removeItem(HISTORY); } catch (e) { /* nothing */ }
   show(q.value);
 }
+// What we actually quoted, typed on the card, by row number. Only kept while
+// the app is open (owner: it is just to write down later).
+var quoted = {};
+function setQuote(i, v) { quoted[i] = v; }
+
 function pastList(current) {
   var k = col(KEY_TITLE), client = col('客人'), prices = priceCols();
   var html = '';
   past.forEach(function (h) {
     if (h === current) return;
-    data.rows.forEach(function (r) {
+    data.rows.forEach(function (r, n) {
       if (norm(r[k]) !== h) return;
       html += '<button class="mini" onclick="pick(\'' + esc(r[k]).replace(/'/g, '') + '\')"><b>' + esc(r[k]) + '</b>' +
         '<span>' + (client >= 0 ? esc(r[client]) : '') + '</span>' +
-        prices.map(function (i) { return '<i>' + esc(r[i] || '—') + '</i>'; }).join('') + '</button>';
+        prices.map(function (i) { return '<i>' + esc(r[i] || '—') + '</i>'; }).join('') +
+        (quoted[n] ? '<em>报价：' + esc(quoted[n]) + '</em>' : '') + '</button>';
     });
   });
   return html ? '<h3>查过的<a href="#" onclick="forget(); return false">清空</a></h3>' + html : '';
@@ -204,6 +215,7 @@ function priceCols() {
 }
 
 function card(r) {
+  var n = data.rows.indexOf(r);
   var k = col(KEY_TITLE), client = col('客人'), cheap = col(CHEAP_TITLE);
   var used = [k, client, cheap];
   var prices = priceCols(), rest = [];
@@ -219,6 +231,8 @@ function card(r) {
       return '<div class="price"><b>' + esc(r[i] || '—') + '</b><span>' + esc(data.titles[i]) + '</span></div>';
     }).join('') + '</div>' +
     '<dl>' + rest.map(row).join('') + '</dl>' +
+    '<div class="quote"><label>实际报价</label><input type="text" placeholder="例如 2.10 / 3000双" value="' +
+      esc(quoted[n] || '') + '" oninput="setQuote(' + n + ', this.value)"></div>' +
     '</div>';
 }
 

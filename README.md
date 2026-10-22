@@ -11,6 +11,8 @@ or type it, and see that style's quote prices.
   Change these in the top of the script in `index.html`.
 - Styles looked up before stay below the current card as one short row each
   (style no, client, prices), kept on the phone.
+- 实际报价 box on each card: what we really quoted, shown again in the
+  past-lookups row. Kept only while the app is open (by design).
 - Libraries are stored in `lib/` (no CDN, for mainland China):
   SheetJS `xlsx` 0.18.5 (reads Excel), ZBar `@undecaf/zbar-wasm` 0.11.0 (barcodes, the
   `dist/inlined` build: one file, no separate .wasm).
