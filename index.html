@@ -233,7 +233,8 @@ function tick() {
 }
 function styleFrom(text) {
   var m = /[?&]s=([^&#]+)/.exec(text);
-  return m ? decodeURIComponent(m[1]) : text.trim();
+  var s = m ? decodeURIComponent(m[1]) : text;
+  return s.split('~')[0].trim();   // sample barcodes look like A88Y009~ONL: keep the style no only
 }
 
 // --- start ------------------------------------------------------------------
