@@ -76,7 +76,7 @@
 </div>
 
 <script src="lib/xlsx.full.min.js"></script>
-<script src="lib/zxing.min.js"></script>
+<script src="lib/zbar.js"></script>
 <script>
 // All data stays on this phone: the Excel is read here and kept in localStorage.
 // Columns are found by their title text, so the sheet's column order can change.
@@ -223,24 +223,19 @@ function card(r) {
 }
 
 // --- barcode scanning -------------------------------------------------------
-// The sample's barcode holds just our style no. QR codes work too; a QR may
-// also be a link ending in ?s=<style no>. Android Chrome has a built-in reader
-// (BarcodeDetector); other phones use the ZXing library in lib/.
+// Sample barcodes hold "style no~client" (or the other way round). QR codes work
+// too. Android Chrome has a built-in reader (BarcodeDetector); when it finds
+// nothing, and on iPhone, we use ZBar (lib/zbar.js, the zbar-wasm package).
+// Held at a slant, labels often fail, so each frame is also tried turned a
+// little (tested on a real photo: bars 20° off read only after turning).
 var video = document.getElementById('video'), scanBox = document.getElementById('scan');
 var stream = null, canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', {willReadFrequently: true});
 var FORMATS = ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'upc_a', 'itf', 'qr_code'];
-var native = null, zx = null;
+var ANGLES = [0, 15, -15, 30, -30];   // degrees; one per frame, in turn
+var native = null, frameNo = 0;
 if ('BarcodeDetector' in window) {
   try { native = new BarcodeDetector({formats: FORMATS}); } catch (e) { native = null; }
 }
-var Z = ZXing.BarcodeFormat, LINEAR = [Z.CODE_128, Z.CODE_39, Z.CODE_93, Z.CODABAR, Z.EAN_13, Z.EAN_8, Z.UPC_A, Z.ITF];
-var hints = new Map(), lineHints = new Map();
-hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, LINEAR.concat([Z.QR_CODE]));
-hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-lineHints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, LINEAR);
-zx = new ZXing.MultiFormatReader(); zx.setHints(hints);
-var lines = new ZXing.MultiFormatReader(); lines.setHints(lineHints);
-var frameNo = 0;
 
 document.getElementById('scanBtn').onclick = function () {
   if (!navigator.mediaDevices) { alert('这个浏览器不能用摄像头，请用 Safari 或 Chrome 打开'); return; }
@@ -255,60 +250,62 @@ function stopScan() {
   if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
   stream = null; scanBox.style.display = 'none';
 }
-function found(text) { stopScan(); pick(styleFrom(text)); }
+function found(text) { if (stream) { stopScan(); pick(styleFrom(text)); } }
+function again() { if (stream) setTimeout(tick, 60); }
+
 function tick() {
   if (!stream) return;
   if (video.readyState < video.HAVE_ENOUGH_DATA) { setTimeout(tick, 150); return; }
   frameNo++;
-  if (native) {
-    native.detect(video).then(function (codes) {
-      if (codes.length) { found(codes[0].rawValue); return; }
-      if (frameNo % 3 === 0 && grabBand() && throughStaple()) return;
-      setTimeout(tick, 120);
-    }).catch(function () { setTimeout(tick, 120); });
-    return;
-  }
-  grabBand();
-  try {
-    var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas)));
-    found(zx.decode(bmp).getText()); return;
-  } catch (e) { /* nothing found in this frame */ }
-  if (frameNo % 3 === 0 && throughStaple()) return;
-  setTimeout(tick, 120);
+  var first = native ? native.detect(video).then(function (c) { return c.length ? c[0].rawValue : null; })
+                     : Promise.resolve(null);
+  first.catch(function () { return null; }).then(function (text) {
+    return text || withZbar();
+  }).then(function (text) {
+    if (text) found(text); else again();
+  }).catch(again);
 }
 
-// Middle band of the picture, where the frame is drawn; barcodes need width.
-function grabBand() {
-  var vw = video.videoWidth, vh = video.videoHeight, bh = Math.round(vh * 0.4);
-  canvas.width = Math.min(vw, 1000); canvas.height = Math.round(bh * canvas.width / vw);
-  ctx.drawImage(video, 0, Math.round((vh - bh) / 2), vw, bh, 0, 0, canvas.width, canvas.height);
-  return true;
+// Draw the camera picture turned by this frame's angle, at most 800 px wide.
+function withZbar() {
+  var vw = video.videoWidth, vh = video.videoHeight, k = Math.min(1, 800 / Math.max(vw, vh));
+  var w = Math.round(vw * k), h = Math.round(vh * k), a = ANGLES[frameNo % ANGLES.length] * Math.PI / 180;
+  canvas.width = w; canvas.height = h;
+  ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(a);
+  ctx.drawImage(video, -w / 2, -h / 2, w, h); ctx.restore();
+  var img = ctx.getImageData(0, 0, w, h);
+  return zbarWasm.scanImageData(img).then(function (codes) {
+    if (codes.length) return codes[0].decode();
+    return frameNo % 2 ? null : throughStaple(img);
+  });
 }
 
 // Samples get stapled over their barcode. A slanted staple hides each column
-// of the bars in only a few rows, so for every strip of 32 rows we take the
-// middle (median) brightness of each column: the staple drops out and the bar
-// underneath is left. Then that one clean line is read. A staple running
-// straight down the bars can't be fixed this way: type the 货号 instead.
-function throughStaple() {
-  var w = canvas.width, h = canvas.height, WIN = 32;
-  var px = ctx.getImageData(0, 0, w, h).data, lum = new Uint8Array(w * h);
-  for (var i = 0; i < w * h; i++) lum[i] = (px[4 * i] * 77 + px[4 * i + 1] * 150 + px[4 * i + 2] * 29) >> 8;
-  var col = new Uint8Array(WIN), line = new Uint8ClampedArray(w * 8);
-  for (var top = 0; top + WIN <= h; top += 8) {
+// of the bars in only a few rows, so for every strip of 32 rows (middle part
+// of the picture) we take the middle (median) brightness of each column: the
+// staple drops out and the bar underneath is left. Then that clean line is read.
+// A staple running straight down the bars can't be fixed: type the 货号 instead.
+function throughStaple(img) {
+  var w = img.width, h = img.height, px = img.data, WIN = 32, ROWS = 8;
+  var col = new Uint8Array(WIN), line = new Uint8Array(w * ROWS), tries = [];
+  for (var top = Math.round(h * 0.25); top + WIN <= h * 0.75; top += 8) {
     for (var x = 0; x < w; x++) {
-      for (var j = 0; j < WIN; j++) col[j] = lum[(top + j) * w + x];
+      for (var j = 0; j < WIN; j++) {
+        var i = 4 * ((top + j) * w + x);
+        col[j] = (px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8;
+      }
       col.sort();
-      for (var k = 0; k < 8; k++) line[k * w + x] = col[WIN >> 1];
+      for (var r = 0; r < ROWS; r++) line[r * w + x] = col[WIN >> 1];
     }
-    try {
-      var src = new ZXing.RGBLuminanceSource(line, w, 8);
-      found(lines.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src))).getText());
-      return true;
-    } catch (e) { /* not in this strip */ }
+    tries.push(zbarWasm.scanGrayBuffer(line.slice(), w, ROWS));
   }
-  return false;
+  return Promise.all(tries).then(function (all) {
+    for (var t = 0; t < all.length; t++) if (all[t].length) return all[t][0].decode();
+    return null;
+  });
 }
+
 function styleFrom(text) {
   var m = /[?&]s=([^&#]+)/.exec(text);
   var s = m ? decodeURIComponent(m[1]) : text;

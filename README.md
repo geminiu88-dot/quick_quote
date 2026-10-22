@@ -12,14 +12,16 @@ or type it, and see that style's quote prices.
 - Styles looked up before stay below the current card as one short row each
   (style no, client, prices), kept on the phone.
 - Libraries are stored in `lib/` (no CDN, for mainland China):
-  SheetJS `xlsx` 0.18.5 (reads Excel), ZXing `@zxing/library` 0.21.3 (barcodes).
+  SheetJS `xlsx` 0.18.5 (reads Excel), ZBar `@undecaf/zbar-wasm` 0.11.0 (barcodes, the
+  `dist/inlined` build: one file, no separate .wasm).
   Android Chrome uses its built-in BarcodeDetector instead.
 - After changing any file, bump `VERSION` in `sw.js` so phones fetch the new copy.
 
 Install on a phone: open the page once with internet, Safari Share → 添加到主屏幕
 (iPhone) or Chrome menu → 安装应用 (Android), then 导入Excel.
 
-Stapled labels: every 3rd camera frame the scanner also takes, per column, the
-median brightness of each 32-row strip (`throughStaple` in `index.html`), so a
-slanted staple drops out of the bars. A staple running straight down the bars
-can't be read; type the 货号 instead.
+Barcodes held at a slant: each camera frame is tried turned by 0, 15, -15, 30,
+-30 degrees in turn (`ANGLES`). Stapled labels: every 2nd frame the scanner also
+takes, per column, the median brightness of each 32-row strip
+(`throughStaple`), so a slanted staple drops out of the bars. A staple running
+straight down the bars can't be read; type the 货号 instead.
