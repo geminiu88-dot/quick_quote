@@ -37,8 +37,15 @@
   dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
   dt { color: var(--muted); }
   dd { margin: 0; }
-  .secret { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
-  .secret summary { color: var(--muted); font-size: 14px; }
+  h3 { font-size: 14px; color: var(--muted); font-weight: 400; margin: 18px 0 6px;
+       display: flex; justify-content: space-between; }
+  h3 a { color: var(--muted); }
+  .mini { display: grid; grid-template-columns: 1fr auto repeat(3, 3.2em); gap: 6px; align-items: baseline;
+          width: 100%; text-align: left; background: #fff; border: 1px solid var(--line);
+          color: #1d2329; font-weight: 400; padding: 8px 10px; margin-bottom: 4px; border-radius: 8px; }
+  .mini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini span { color: var(--muted); font-size: 14px; }
+  .mini i { font-style: normal; text-align: right; color: var(--blue); font-weight: 600; }
   .list button { display: block; width: 100%; text-align: left; margin-bottom: 6px;
                  border: 1px solid var(--line); color: #1d2329; font-weight: 400; }
   .empty { text-align: center; color: var(--muted); margin-top: 40px; }
@@ -75,9 +82,10 @@
 // Columns are found by their title text, so the sheet's column order can change.
 var STORE = 'fair-data';
 var KEY_TITLE = '货号';                    // the column with our style no
-var HIDDEN_TITLES = ['工厂', '起订价格'];   // shown only after a tap (buyers may see the screen)
 var PRICE_MARK = /\d\.\d\s*$/;             // price columns end in an exchange rate, e.g. "...6.5"
 var CHEAP_TITLE = '低价';
+var HISTORY = 'fair-history';           // style nos looked up before, newest first
+var MAX_HISTORY = 50;
 
 var data = load();   // {file, when, titles: [...], rows: [[...], ...]}
 var out = document.getElementById('out');
@@ -86,6 +94,9 @@ var q = document.getElementById('q');
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE)); } catch (e) { return null; }
 }
+
+var past = [];
+try { past = JSON.parse(localStorage.getItem(HISTORY)) || []; } catch (e) { past = []; }
 
 function clean(s) { return String(s == null ? '' : s).replace(/\s+/g, ''); }
 function norm(s) { return clean(s).toUpperCase(); }
@@ -139,10 +150,17 @@ q.oninput = function () { show(q.value); };
 function show(text) {
   var s = norm(text);
   if (!data) { out.innerHTML = '<p class="empty">先点右上角「导入Excel」，选公司导出的表</p>'; return; }
-  if (!s) { out.innerHTML = '<p class="empty">输入货号，或点「扫码」</p>'; return; }
+  if (!s) {
+    out.innerHTML = (past.length ? '' : '<p class="empty">输入货号，或点「扫码」</p>') + pastList('');
+    return;
+  }
   var k = col(KEY_TITLE);
   var exact = data.rows.filter(function (r) { return norm(r[k]) === s; });
-  if (exact.length) { out.innerHTML = exact.map(card).join(''); return; }
+  if (exact.length) {
+    remember(s);
+    out.innerHTML = exact.map(card).join('') + pastList(s);
+    return;
+  }
   var seen = {}, near = [];
   data.rows.forEach(function (r) {
     var v = norm(r[k]);
@@ -153,17 +171,44 @@ function show(text) {
     return '<button onclick="pick(this.textContent)">' + esc(v) + '</button>';
   }).join('') + '</div>';
 }
-function pick(v) { q.value = v; show(v); }
+function pick(v) { q.value = v; show(v); window.scrollTo(0, 0); }
+
+// --- past lookups: one short row per Excel row (style no, client, prices) ---
+function remember(s) {
+  past = [s].concat(past.filter(function (h) { return h !== s; })).slice(0, MAX_HISTORY);
+  try { localStorage.setItem(HISTORY, JSON.stringify(past)); } catch (e) { /* not kept */ }
+}
+function forget() {
+  past = [];
+  try { localStorage.removeItem(HISTORY); } catch (e) { /* nothing */ }
+  show(q.value);
+}
+function pastList(current) {
+  var k = col(KEY_TITLE), client = col('客人'), prices = priceCols();
+  var html = '';
+  past.forEach(function (h) {
+    if (h === current) return;
+    data.rows.forEach(function (r) {
+      if (norm(r[k]) !== h) return;
+      html += '<button class="mini" onclick="pick(\'' + esc(r[k]).replace(/'/g, '') + '\')"><b>' + esc(r[k]) + '</b>' +
+        '<span>' + (client >= 0 ? esc(r[client]) : '') + '</span>' +
+        prices.map(function (i) { return '<i>' + esc(r[i] || '—') + '</i>'; }).join('') + '</button>';
+    });
+  });
+  return html ? '<h3>查过的<a href="#" onclick="forget(); return false">清空</a></h3>' + html : '';
+}
+function priceCols() {
+  var list = [];
+  data.titles.forEach(function (t, i) { if (PRICE_MARK.test(t)) list.push(i); });
+  return list;
+}
 
 function card(r) {
   var k = col(KEY_TITLE), client = col('客人'), cheap = col(CHEAP_TITLE);
   var used = [k, client, cheap];
-  var prices = [], secret = [], rest = [];
+  var prices = priceCols(), rest = [];
   data.titles.forEach(function (t, i) {
-    if (used.indexOf(i) >= 0 || !t) return;
-    if (HIDDEN_TITLES.some(function (h) { return t.indexOf(h) >= 0; })) secret.push(i);
-    else if (PRICE_MARK.test(t)) prices.push(i);
-    else rest.push(i);
+    if (used.indexOf(i) < 0 && prices.indexOf(i) < 0 && t) rest.push(i);
   });
   var cheapTag = cheap >= 0 && r[cheap] && r[cheap] !== '0' ? '<span class="tag">低价客</span>' : '';
   var row = function (i) { return '<dt>' + esc(data.titles[i]) + '</dt><dd>' + esc(r[i] || '—') + '</dd>'; };
@@ -174,8 +219,6 @@ function card(r) {
       return '<div class="price"><b>' + esc(r[i] || '—') + '</b><span>' + esc(data.titles[i]) + '</span></div>';
     }).join('') + '</div>' +
     '<dl>' + rest.map(row).join('') + '</dl>' +
-    (secret.length ? '<details class="secret"><summary>内部信息（点开）</summary><dl>' +
-      secret.map(row).join('') + '</dl></details>' : '') +
     '</div>';
 }
 

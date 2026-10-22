@@ -7,8 +7,10 @@ or type it, and see that style's quote prices.
   and stays on that phone (browser storage). Nothing is uploaded anywhere.
 - **Works offline** after the first visit (service worker `sw.js`).
 - Columns are found by their title text (`货号`, `客人`, `低价`; price columns
-  end in an exchange rate like `6.5`; `工厂` and `起订价格` are hidden until tapped).
+  end in an exchange rate like `6.5`; all other columns are listed under them).
   Change these in the top of the script in `index.html`.
+- Styles looked up before stay below the current card as one short row each
+  (style no, client, prices), kept on the phone.
 - Libraries are stored in `lib/` (no CDN, for mainland China):
   SheetJS `xlsx` 0.18.5 (reads Excel), ZXing `@zxing/library` 0.21.3 (barcodes).
   Android Chrome uses its built-in BarcodeDetector instead.
