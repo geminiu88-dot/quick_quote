@@ -1,4 +1,4 @@
-# 报价查询 (fair-lookup)
+# 报价查询 (quick_quote)
 
 Phone page for the Canton Fair: scan a sample's barcode (our style no, 我司货号)
 or type it, and see that style's quote prices.
