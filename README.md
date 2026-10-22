@@ -18,3 +18,8 @@ or type it, and see that style's quote prices.
 
 Install on a phone: open the page once with internet, Safari Share → 添加到主屏幕
 (iPhone) or Chrome menu → 安装应用 (Android), then 导入Excel.
+
+Stapled labels: every 3rd camera frame the scanner also takes, per column, the
+median brightness of each 32-row strip (`throughStaple` in `index.html`), so a
+slanted staple drops out of the bars. A staple running straight down the bars
+can't be read; type the 货号 instead.

@@ -233,13 +233,14 @@ var native = null, zx = null;
 if ('BarcodeDetector' in window) {
   try { native = new BarcodeDetector({formats: FORMATS}); } catch (e) { native = null; }
 }
-if (!native) {
-  var Z = ZXing.BarcodeFormat, hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [Z.CODE_128, Z.CODE_39, Z.CODE_93, Z.CODABAR,
-    Z.EAN_13, Z.EAN_8, Z.UPC_A, Z.ITF, Z.QR_CODE]);
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-  zx = new ZXing.MultiFormatReader(); zx.setHints(hints);
-}
+var Z = ZXing.BarcodeFormat, LINEAR = [Z.CODE_128, Z.CODE_39, Z.CODE_93, Z.CODABAR, Z.EAN_13, Z.EAN_8, Z.UPC_A, Z.ITF];
+var hints = new Map(), lineHints = new Map();
+hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, LINEAR.concat([Z.QR_CODE]));
+hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+lineHints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, LINEAR);
+zx = new ZXing.MultiFormatReader(); zx.setHints(hints);
+var lines = new ZXing.MultiFormatReader(); lines.setHints(lineHints);
+var frameNo = 0;
 
 document.getElementById('scanBtn').onclick = function () {
   if (!navigator.mediaDevices) { alert('这个浏览器不能用摄像头，请用 Safari 或 Chrome 打开'); return; }
@@ -258,21 +259,55 @@ function found(text) { stopScan(); pick(styleFrom(text)); }
 function tick() {
   if (!stream) return;
   if (video.readyState < video.HAVE_ENOUGH_DATA) { setTimeout(tick, 150); return; }
+  frameNo++;
   if (native) {
     native.detect(video).then(function (codes) {
-      if (codes.length) found(codes[0].rawValue); else setTimeout(tick, 120);
+      if (codes.length) { found(codes[0].rawValue); return; }
+      if (frameNo % 3 === 0 && grabBand() && throughStaple()) return;
+      setTimeout(tick, 120);
     }).catch(function () { setTimeout(tick, 120); });
     return;
   }
-  // Middle band of the picture, where the frame is drawn; barcodes need width.
-  var vw = video.videoWidth, vh = video.videoHeight, bh = Math.round(vh * 0.4);
-  canvas.width = Math.min(vw, 1000); canvas.height = Math.round(bh * canvas.width / vw);
-  ctx.drawImage(video, 0, Math.round((vh - bh) / 2), vw, bh, 0, 0, canvas.width, canvas.height);
+  grabBand();
   try {
     var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas)));
     found(zx.decode(bmp).getText()); return;
   } catch (e) { /* nothing found in this frame */ }
+  if (frameNo % 3 === 0 && throughStaple()) return;
   setTimeout(tick, 120);
+}
+
+// Middle band of the picture, where the frame is drawn; barcodes need width.
+function grabBand() {
+  var vw = video.videoWidth, vh = video.videoHeight, bh = Math.round(vh * 0.4);
+  canvas.width = Math.min(vw, 1000); canvas.height = Math.round(bh * canvas.width / vw);
+  ctx.drawImage(video, 0, Math.round((vh - bh) / 2), vw, bh, 0, 0, canvas.width, canvas.height);
+  return true;
+}
+
+// Samples get stapled over their barcode. A slanted staple hides each column
+// of the bars in only a few rows, so for every strip of 32 rows we take the
+// middle (median) brightness of each column: the staple drops out and the bar
+// underneath is left. Then that one clean line is read. A staple running
+// straight down the bars can't be fixed this way: type the 货号 instead.
+function throughStaple() {
+  var w = canvas.width, h = canvas.height, WIN = 32;
+  var px = ctx.getImageData(0, 0, w, h).data, lum = new Uint8Array(w * h);
+  for (var i = 0; i < w * h; i++) lum[i] = (px[4 * i] * 77 + px[4 * i + 1] * 150 + px[4 * i + 2] * 29) >> 8;
+  var col = new Uint8Array(WIN), line = new Uint8ClampedArray(w * 8);
+  for (var top = 0; top + WIN <= h; top += 8) {
+    for (var x = 0; x < w; x++) {
+      for (var j = 0; j < WIN; j++) col[j] = lum[(top + j) * w + x];
+      col.sort();
+      for (var k = 0; k < 8; k++) line[k * w + x] = col[WIN >> 1];
+    }
+    try {
+      var src = new ZXing.RGBLuminanceSource(line, w, 8);
+      found(lines.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src))).getText());
+      return true;
+    } catch (e) { /* not in this strip */ }
+  }
+  return false;
 }
 function styleFrom(text) {
   var m = /[?&]s=([^&#]+)/.exec(text);
