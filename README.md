@@ -13,6 +13,8 @@ or type it, and see that style's quote prices.
   (style no, client, prices), kept on the phone.
 - 实际报价 box on each card: what we really quoted, shown again in the
   past-lookups row. Kept only while the app is open (by design).
+- Scanned code not in the table: it stays in the search box with the cursor in
+  it, and 货号 1-2 characters off (misreads) are listed underneath.
 - Libraries are stored in `lib/` (no CDN, for mainland China):
   SheetJS `xlsx` 0.18.5 (reads Excel), ZBar `@undecaf/zbar-wasm` 0.11.0 (barcodes, the
   `dist/inlined` build: one file, no separate .wasm).
