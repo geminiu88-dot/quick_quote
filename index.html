@@ -234,7 +234,11 @@ function tick() {
 function styleFrom(text) {
   var m = /[?&]s=([^&#]+)/.exec(text);
   var s = m ? decodeURIComponent(m[1]) : text;
-  return s.split('~')[0].trim();   // sample barcodes look like A88Y009~ONL: keep the style no only
+  // Sample barcodes join style no and client with ~ (835504~TU), sometimes the
+  // other way round (TU~835504). Drop parts with fewer than 3 digits (the client).
+  var parts = s.split('~').map(function (p) { return p.trim(); });
+  var keep = parts.filter(function (p) { return (p.match(/\d/g) || []).length >= 3; });
+  return keep.length ? keep[0] : parts[0];
 }
 
 // --- start ------------------------------------------------------------------
