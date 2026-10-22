@@ -11,8 +11,9 @@ or type it, and see that style's quote prices.
   Change these in the top of the script in `index.html`.
 - Styles looked up before stay below the current card as one short row each
   (style no, client, prices), kept on the phone.
-- 实际报价 box on each card: what we really quoted, shown again in the
-  past-lookups row. Kept only while the app is open (by design).
+- 实际报价 box on each card: what we really quoted (tap one of the three
+  prices to fill it while empty), shown again in the past-lookups row. Kept on
+  the phone by 货号 + 客人 + 尺码; 「清空」 clears lookups and quotes together.
 - Scanned code not in the table: it stays in the search box with the cursor in
   it, and 货号 1-2 characters off (misreads) are listed underneath.
 - Libraries are stored in `lib/` (no CDN, for mainland China):
