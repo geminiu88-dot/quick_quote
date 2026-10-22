@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>报价查询</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="报价查询">
+<meta name="theme-color" content="#1f5f8b">
+<style>
+  :root { --blue: #1f5f8b; --bg: #f3f5f7; --line: #d9dee3; --muted: #6b7682; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: #1d2329;
+         font: 16px/1.4 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--blue); color: #fff;
+           padding: 10px 12px calc(10px); padding-top: max(10px, env(safe-area-inset-top)); }
+  .bar { display: flex; gap: 8px; }
+  #q { flex: 1; min-width: 0; font-size: 20px; padding: 10px 12px; border: 0; border-radius: 8px;
+       text-transform: uppercase; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 10px 14px; background: #fff;
+           color: var(--blue); font-weight: 600; }
+  #info { font-size: 12px; opacity: .85; margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; }
+  #info a { color: #fff; }
+  main { padding: 12px; max-width: 640px; margin: 0 auto; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .style { font-size: 24px; font-weight: 700; }
+  .client { font-size: 18px; color: var(--muted); }
+  .tag { display: inline-block; background: #fde7dc; color: #b23c00; border-radius: 6px;
+         padding: 1px 8px; font-size: 14px; margin-left: 6px; font-weight: 600; }
+  .prices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+  .price { background: #eef4f9; border-radius: 8px; padding: 8px; text-align: center; }
+  .price b { display: block; font-size: 26px; color: var(--blue); }
+  .price span { font-size: 11px; color: var(--muted); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+  .secret { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  .secret summary { color: var(--muted); font-size: 14px; }
+  .list button { display: block; width: 100%; text-align: left; margin-bottom: 6px;
+                 border: 1px solid var(--line); color: #1d2329; font-weight: 400; }
+  .empty { text-align: center; color: var(--muted); margin-top: 40px; }
+  #scan { position: fixed; inset: 0; background: #000; z-index: 5; display: none; }
+  #scan video { width: 100%; height: 100%; object-fit: cover; }
+  #scan .frame { position: absolute; left: 8%; right: 8%; top: 38%; height: 24%;
+                 border: 3px solid #fff; border-radius: 12px; }
+  #scan button { position: absolute; bottom: calc(30px + env(safe-area-inset-bottom)); left: 50%;
+                 transform: translateX(-50%); }
+  #scan p { position: absolute; top: 15%; width: 100%; text-align: center; color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <input id="q" type="search" placeholder="输入货号" autocomplete="off" autocapitalize="characters">
+    <button id="scanBtn">扫码</button>
+  </div>
+  <div id="info"><span id="dataInfo">还没有数据</span><a href="#" id="importLink">导入Excel</a></div>
+  <input id="file" type="file" accept=".xlsx,.xls,.csv" hidden>
+</header>
+<main id="out"></main>
+<div id="scan">
+  <video id="video" playsinline muted></video>
+  <div class="frame"></div>
+  <p>把条码放进框里</p>
+  <button id="stopBtn">取消</button>
+</div>
+
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/zxing.min.js"></script>
+<script>
+// All data stays on this phone: the Excel is read here and kept in localStorage.
+// Columns are found by their title text, so the sheet's column order can change.
+var STORE = 'fair-data';
+var KEY_TITLE = '货号';                    // the column with our style no
+var HIDDEN_TITLES = ['工厂', '起订价格'];   // shown only after a tap (buyers may see the screen)
+var PRICE_MARK = /\d\.\d\s*$/;             // price columns end in an exchange rate, e.g. "...6.5"
+var CHEAP_TITLE = '低价';
+
+var data = load();   // {file, when, titles: [...], rows: [[...], ...]}
+var out = document.getElementById('out');
+var q = document.getElementById('q');
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORE)); } catch (e) { return null; }
+}
+
+function clean(s) { return String(s == null ? '' : s).replace(/\s+/g, ''); }
+function norm(s) { return clean(s).toUpperCase(); }
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, function (c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
+  });
+}
+function col(text) {
+  if (!data) return -1;
+  for (var i = 0; i < data.titles.length; i++) if (data.titles[i].indexOf(text) >= 0) return i;
+  return -1;
+}
+
+// --- import ---------------------------------------------------------------
+document.getElementById('importLink').onclick = function (e) {
+  e.preventDefault(); document.getElementById('file').click();
+};
+document.getElementById('file').onchange = function () {
+  var f = this.files[0]; if (!f) return;
+  out.innerHTML = '<p class="empty">正在读取…</p>';
+  f.arrayBuffer().then(function (buf) {
+    var book = XLSX.read(buf, {type: 'array'});
+    var sheet = book.Sheets[book.SheetNames[0]];
+    var grid = XLSX.utils.sheet_to_json(sheet, {header: 1, raw: false, defval: ''});
+    var head = grid.findIndex(function (r) { return r.some(function (c) { return clean(c).indexOf(KEY_TITLE) >= 0; }); });
+    if (head < 0) throw new Error('第一张表里找不到「' + KEY_TITLE + '」这一列');
+    var titles = grid[head].map(clean);
+    var k = titles.findIndex(function (t) { return t.indexOf(KEY_TITLE) >= 0; });
+    var rows = grid.slice(head + 1).filter(function (r) { return clean(r[k]); })
+                   .map(function (r) { return r.map(function (c) { return String(c).trim(); }); });
+    var fresh = {file: f.name, when: new Date().toLocaleString('zh-CN'), titles: titles, rows: rows};
+    try { localStorage.setItem(STORE, JSON.stringify(fresh)); }
+    catch (e) { alert('手机存储空间不够，这次导入只在页面打开时有效'); }
+    data = fresh; showInfo(); show('');
+    out.innerHTML = '<p class="empty">已导入 ' + rows.length + ' 行</p>';
+  }).catch(function (err) {
+    out.innerHTML = '<p class="empty">读取失败：' + esc(err.message) + '</p>';
+  });
+  this.value = '';
+};
+
+function showInfo() {
+  document.getElementById('dataInfo').textContent = data
+    ? data.rows.length + ' 行 · ' + data.file + ' · ' + data.when : '还没有数据，请先导入Excel';
+}
+
+// --- search ---------------------------------------------------------------
+q.oninput = function () { show(q.value); };
+
+function show(text) {
+  var s = norm(text);
+  if (!data) { out.innerHTML = '<p class="empty">先点右上角「导入Excel」，选公司导出的表</p>'; return; }
+  if (!s) { out.innerHTML = '<p class="empty">输入货号，或点「扫码」</p>'; return; }
+  var k = col(KEY_TITLE);
+  var exact = data.rows.filter(function (r) { return norm(r[k]) === s; });
+  if (exact.length) { out.innerHTML = exact.map(card).join(''); return; }
+  var seen = {}, near = [];
+  data.rows.forEach(function (r) {
+    var v = norm(r[k]);
+    if (v.indexOf(s) >= 0 && !seen[v]) { seen[v] = 1; near.push(r[k]); }
+  });
+  if (!near.length) { out.innerHTML = '<p class="empty">没有找到 ' + esc(s) + '</p>'; return; }
+  out.innerHTML = '<div class="list">' + near.slice(0, 30).map(function (v) {
+    return '<button onclick="pick(this.textContent)">' + esc(v) + '</button>';
+  }).join('') + '</div>';
+}
+function pick(v) { q.value = v; show(v); }
+
+function card(r) {
+  var k = col(KEY_TITLE), client = col('客人'), cheap = col(CHEAP_TITLE);
+  var used = [k, client, cheap];
+  var prices = [], secret = [], rest = [];
+  data.titles.forEach(function (t, i) {
+    if (used.indexOf(i) >= 0 || !t) return;
+    if (HIDDEN_TITLES.some(function (h) { return t.indexOf(h) >= 0; })) secret.push(i);
+    else if (PRICE_MARK.test(t)) prices.push(i);
+    else rest.push(i);
+  });
+  var cheapTag = cheap >= 0 && r[cheap] && r[cheap] !== '0' ? '<span class="tag">低价客</span>' : '';
+  var row = function (i) { return '<dt>' + esc(data.titles[i]) + '</dt><dd>' + esc(r[i] || '—') + '</dd>'; };
+  return '<div class="card">' +
+    '<div class="top"><span class="style">' + esc(r[k]) + '</span>' +
+    '<span class="client">' + (client >= 0 ? esc(r[client]) : '') + cheapTag + '</span></div>' +
+    '<div class="prices">' + prices.map(function (i) {
+      return '<div class="price"><b>' + esc(r[i] || '—') + '</b><span>' + esc(data.titles[i]) + '</span></div>';
+    }).join('') + '</div>' +
+    '<dl>' + rest.map(row).join('') + '</dl>' +
+    (secret.length ? '<details class="secret"><summary>内部信息（点开）</summary><dl>' +
+      secret.map(row).join('') + '</dl></details>' : '') +
+    '</div>';
+}
+
+// --- barcode scanning -------------------------------------------------------
+// The sample's barcode holds just our style no. QR codes work too; a QR may
+// also be a link ending in ?s=<style no>. Android Chrome has a built-in reader
+// (BarcodeDetector); other phones use the ZXing library in lib/.
+var video = document.getElementById('video'), scanBox = document.getElementById('scan');
+var stream = null, canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', {willReadFrequently: true});
+var FORMATS = ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'upc_a', 'itf', 'qr_code'];
+var native = null, zx = null;
+if ('BarcodeDetector' in window) {
+  try { native = new BarcodeDetector({formats: FORMATS}); } catch (e) { native = null; }
+}
+if (!native) {
+  var Z = ZXing.BarcodeFormat, hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [Z.CODE_128, Z.CODE_39, Z.CODE_93, Z.CODABAR,
+    Z.EAN_13, Z.EAN_8, Z.UPC_A, Z.ITF, Z.QR_CODE]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  zx = new ZXing.MultiFormatReader(); zx.setHints(hints);
+}
+
+document.getElementById('scanBtn').onclick = function () {
+  if (!navigator.mediaDevices) { alert('这个浏览器不能用摄像头，请用 Safari 或 Chrome 打开'); return; }
+  navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment', width: {ideal: 1280}}}).then(function (s) {
+    stream = s; video.srcObject = s; scanBox.style.display = 'block';
+    video.play(); setTimeout(tick, 200);
+  }).catch(function () { alert('没有摄像头权限'); });
+};
+document.getElementById('stopBtn').onclick = stopScan;
+
+function stopScan() {
+  if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+  stream = null; scanBox.style.display = 'none';
+}
+function found(text) { stopScan(); pick(styleFrom(text)); }
+function tick() {
+  if (!stream) return;
+  if (video.readyState < video.HAVE_ENOUGH_DATA) { setTimeout(tick, 150); return; }
+  if (native) {
+    native.detect(video).then(function (codes) {
+      if (codes.length) found(codes[0].rawValue); else setTimeout(tick, 120);
+    }).catch(function () { setTimeout(tick, 120); });
+    return;
+  }
+  // Middle band of the picture, where the frame is drawn; barcodes need width.
+  var vw = video.videoWidth, vh = video.videoHeight, bh = Math.round(vh * 0.4);
+  canvas.width = Math.min(vw, 1000); canvas.height = Math.round(bh * canvas.width / vw);
+  ctx.drawImage(video, 0, Math.round((vh - bh) / 2), vw, bh, 0, 0, canvas.width, canvas.height);
+  try {
+    var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(canvas)));
+    found(zx.decode(bmp).getText()); return;
+  } catch (e) { /* nothing found in this frame */ }
+  setTimeout(tick, 120);
+}
+function styleFrom(text) {
+  var m = /[?&]s=([^&#]+)/.exec(text);
+  return m ? decodeURIComponent(m[1]) : text.trim();
+}
+
+// --- start ------------------------------------------------------------------
+showInfo();
+var start = /[?&]s=([^&#]+)/.exec(location.search);
+if (start) pick(decodeURIComponent(start[1])); else show('');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
