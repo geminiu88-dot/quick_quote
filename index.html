@@ -54,6 +54,10 @@
                  border: 1px solid var(--line); border-radius: 8px; }
   .list button { display: block; width: 100%; text-align: left; margin-bottom: 6px;
                  border: 1px solid var(--line); color: #1d2329; font-weight: 400; }
+  .country { display: grid; grid-template-columns: 3.4em 1fr; gap: 2px 10px; align-items: center;
+             background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .country b { grid-row: span 2; font-size: 22px; color: var(--blue); }
+  .country span { color: var(--muted); font-size: 14px; }
   .empty { text-align: center; color: var(--muted); margin-top: 40px; }
   .miss { background: #fff4ec; border: 1px solid #f3c9ad; border-radius: 12px; padding: 12px 14px;
           margin-bottom: 12px; word-break: break-all; }
@@ -69,7 +73,7 @@
 <body>
 <header>
   <div class="bar">
-    <input id="q" type="search" placeholder="输入货号" autocomplete="off" autocapitalize="characters">
+    <input id="q" type="search" placeholder="货号 或 国家" autocomplete="off" autocapitalize="characters">
     <button id="scanBtn">扫码</button>
   </div>
   <div id="info"><span id="dataInfo">还没有数据</span><a href="#" id="importLink">导入Excel</a></div>
@@ -130,6 +134,7 @@ document.getElementById('file').onchange = function () {
     var book = XLSX.read(buf, {type: 'array'});
     var sheet = book.Sheets[book.SheetNames[0]];
     var grid = XLSX.utils.sheet_to_json(sheet, {header: 1, raw: false, defval: ''});
+    if (isCountrySheet(grid)) { saveCountries(grid, f.name); return; }
     var head = grid.findIndex(function (r) { return r.some(function (c) { return clean(c).indexOf(KEY_TITLE) >= 0; }); });
     if (head < 0) throw new Error('第一张表里找不到「' + KEY_TITLE + '」这一列');
     var titles = grid[head].map(clean);
@@ -148,8 +153,56 @@ document.getElementById('file').onchange = function () {
 };
 
 function showInfo() {
-  document.getElementById('dataInfo').textContent = data
-    ? data.rows.length + ' 行 · ' + data.file + ' · ' + data.when : '还没有数据，请先导入Excel';
+  document.getElementById('dataInfo').textContent = (data
+    ? data.rows.length + ' 行 · ' + data.file + ' · ' + data.when : '还没有数据，请先导入Excel') +
+    (countries ? ' · 国家表 ✓' : '');
+}
+
+// --- countries: which group (组别) a client's country belongs to -----------
+// The 市场区分表 is imported with the same button; it is recognised by its
+// 组别 and 国别 columns. Search text without digits looks up countries.
+var COUNTRIES = 'fair-countries';
+var ALIASES = {USA: 'UNITEDSTATESOFAMERICA', US: 'UNITEDSTATESOFAMERICA', AMERICA: 'UNITEDSTATESOFAMERICA',
+               UK: 'UNITEDKINGDOM', BRITAIN: 'UNITEDKINGDOM', ENGLAND: 'UNITEDKINGDOM',
+               UAE: 'UNITEDARABEMIRATES', KOREA: 'KOREA,SOUTH', '英格兰': 'UNITEDKINGDOM'};
+var countries = null;   // [[组别, 国别, 英文国别, 小区, 大区], ...]
+try { countries = JSON.parse(localStorage.getItem(COUNTRIES)); } catch (e) { countries = null; }
+
+function titleRow(grid) {
+  return grid.findIndex(function (r) {
+    var t = r.map(clean); return t.indexOf('组别') >= 0 && t.indexOf('国别') >= 0;
+  });
+}
+function isCountrySheet(grid) { return titleRow(grid) >= 0; }
+function saveCountries(grid, file) {
+  var head = titleRow(grid), t = grid[head].map(clean);
+  var at = function (name) { return t.indexOf(name); };
+  var cols = [at('组别'), at('国别'), at('英文国别'), at('小区'), at('大区')];
+  countries = grid.slice(head + 1).filter(function (r) { return clean(r[cols[1]]); }).map(function (r) {
+    return cols.map(function (i) { return i >= 0 ? String(r[i]).trim() : ''; });
+  });
+  try { localStorage.setItem(COUNTRIES, JSON.stringify(countries)); }
+  catch (e) { alert('手机存储空间不够，这次导入只在页面打开时有效'); }
+  showInfo();
+  out.innerHTML = '<p class="empty">已导入国家表 ' + countries.length + ' 个国家/地区（' + esc(file) + '）</p>';
+}
+function showCountries(s) {
+  var target = ALIASES[s];
+  var hits = countries.filter(function (c) {
+    var cn = norm(c[1]), en = norm(c[2]);
+    return (target && en === target) || cn.indexOf(s) >= 0 || en.indexOf(s) >= 0;
+  });
+  // Exact names first (e.g. "印度" before "印度尼西亚").
+  hits.sort(function (a, b) {
+    var ea = norm(a[1]) === s || norm(a[2]) === s || norm(a[2]) === target;
+    var eb = norm(b[1]) === s || norm(b[2]) === s || norm(b[2]) === target;
+    return eb - ea;
+  });
+  if (!hits.length) { out.innerHTML = '<div class="miss">国家表里没有 <b>' + esc(s) + '</b>，试试中文或英文名</div>'; return; }
+  out.innerHTML = hits.slice(0, 20).map(function (c) {
+    return '<div class="country"><b>' + esc(c[0] || '—') + '</b><div>' + esc(c[1]) + ' · ' + esc(c[2]) + '</div>' +
+      '<span>' + esc([c[3], c[4]].filter(Boolean).join(' · ')) + (c[0] === '不填' ? ' · 美国市场不填组别' : '') + '</span></div>';
+  }).join('');
 }
 
 // --- search ---------------------------------------------------------------
@@ -157,6 +210,7 @@ q.oninput = function () { show(q.value); };
 
 function show(text) {
   var s = norm(text);
+  if (s && countries && !/\d/.test(s)) { showCountries(s); return; }
   if (!data) { out.innerHTML = '<p class="empty">先点右上角「导入Excel」，选公司导出的表</p>'; return; }
   if (!s) {
     out.innerHTML = (past.length ? '' : '<p class="empty">输入货号，或点「扫码」</p>') + pastList('');

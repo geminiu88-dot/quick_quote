@@ -30,3 +30,8 @@ Barcodes held at a slant: each camera frame is tried turned by 0, 15, -15, 30,
 takes, per column, the median brightness of each 32-row strip
 (`throughStaple`), so a slanted staple drops out of the bars. A staple running
 straight down the bars can't be read; type the 货号 instead.
+
+Countries: import the 市场区分表 (columns 组别, 国别, 英文国别, 小区, 大区) with the
+same 「导入Excel」 button; it is recognised by its titles and kept on the phone.
+Search text without digits looks up countries (Chinese or English, part of the
+name; USA / UK / UAE work too) and shows the group (组别).
