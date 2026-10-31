@@ -17,7 +17,12 @@
   header { position: sticky; top: 0; z-index: 2; background: var(--blue); color: #fff;
            padding: 10px 12px calc(10px); padding-top: max(10px, env(safe-area-inset-top)); }
   .bar { display: flex; gap: 8px; }
-  #q { flex: 1; min-width: 0; font-size: 20px; padding: 10px 12px; border: 0; border-radius: 8px;
+  .qbox { flex: 1; min-width: 0; position: relative; display: flex; }
+  #clearQ { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: none;
+            width: 26px; height: 26px; padding: 0; border-radius: 50%; background: #b8c1ca;
+            color: #fff; font-size: 14px; line-height: 26px; text-align: center; right: 8px; }
+  #q::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+  #q { flex: 1; min-width: 0; font-size: 20px; padding: 10px 40px 10px 12px; border: 0; border-radius: 8px;
        text-transform: uppercase; }
   button { font: inherit; border: 0; border-radius: 8px; padding: 10px 14px; background: #fff;
            color: var(--blue); font-weight: 600; }
@@ -73,7 +78,10 @@
 <body>
 <header>
   <div class="bar">
-    <input id="q" type="search" placeholder="货号 或 国家" autocomplete="off" autocapitalize="characters">
+    <span class="qbox">
+      <input id="q" type="search" placeholder="货号 或 国家" autocomplete="off" autocapitalize="characters">
+      <button id="clearQ" type="button" aria-label="清除">✕</button>
+    </span>
     <button id="scanBtn">扫码</button>
   </div>
   <div id="info"><span id="dataInfo">还没有数据</span><a href="#" id="importLink">导入Excel</a></div>
@@ -207,6 +215,11 @@ function showCountries(s) {
 
 // --- search ---------------------------------------------------------------
 q.oninput = function () { show(q.value); };
+// The ✕ in the search box: empty it and go back to the list of past lookups.
+var clearQ = document.getElementById('clearQ');
+function syncClear() { clearQ.style.display = q.value ? 'block' : 'none'; }
+q.addEventListener('input', syncClear);
+clearQ.onclick = function () { q.value = ''; syncClear(); show(''); q.focus(); };
 
 function show(text) {
   var s = norm(text);
@@ -240,7 +253,7 @@ function show(text) {
       return '<button onclick="pick(this.textContent)">' + esc(v) + '</button>';
     }).join('') + '</div>';
 }
-function pick(v) { q.value = v; show(v); window.scrollTo(0, 0); }
+function pick(v) { q.value = v; syncClear(); show(v); window.scrollTo(0, 0); }
 
 // How many letters to change, add or remove to turn a into b.
 function typos(a, b) {
