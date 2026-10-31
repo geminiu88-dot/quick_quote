@@ -6,8 +6,11 @@
 // check character it can misread, so the caller must only accept a result
 // that is a known 货号.
 //
-// cut128(gray, w, h) -> list of {text, complete} (most often seen first).
-// complete = the stop pattern was seen, so nothing is missing at the end.
+// cut128(gray, w, h) -> list of {text, complete, headless, count}, most often
+// seen first. complete = the stop pattern was seen, so nothing is missing at
+// the end. headless = the start was cut off too (labels printed wider than the
+// label on both sides): characters read from the middle, so the first ones may
+// be missing; only readings that contain a ~ are kept.
 // gray: one brightness value (0-255) per pixel, row by row.
 
 var CUT128 = (function () {
@@ -108,6 +111,25 @@ var CUT128 = (function () {
       else { found.push(toText(values)); found.push(toText(values.slice(0, -1))); }
     }
   }
+  // Start cut off: try every position, read as many characters as fit, and
+  // guess the code set (B or C) the run began in.
+  function readHeadless(isDark, w, found) {
+    for (var s = 0; s + 30 <= w.length; s++) {
+      if (!isDark[s]) continue;
+      var values = [], k = s;
+      while (k + 6 <= w.length) {
+        var c = match(w.slice(k, k + 6));
+        if (c < 0 || c > 102) break;
+        values.push(c); k += 6;
+      }
+      if (values.length < 5) continue;
+      [104, 105].forEach(function (startSet) {
+        var t = toText([startSet].concat(values));
+        if (t.indexOf('~') >= 0) found.push(t + '\u0002');
+      });
+      s = k - 1;   // continue after this run
+    }
+  }
   function isStop(w) {
     var total = 0; for (var i = 0; i < 7; i++) total += w[i];
     var m = edges(w).map(function (e) { return e * 13 / total; }), e = edges(STOP), err = 0;
@@ -121,16 +143,21 @@ var CUT128 = (function () {
       var line = gray.subarray(y * w, y * w + w), r = runs(line);
       var isDark = [], widths = [];
       for (var i = 0; i < r.length; i += 2) { isDark.push(r[i]); widths.push(r[i + 1]); }
+      var before = found.length;
       readWidths(isDark, widths, found);
       readWidths(isDark.slice().reverse(), widths.slice().reverse(), found);   // label upside down
+      if (found.length === before) {
+        readHeadless(isDark, widths, found);
+        readHeadless(isDark.slice().reverse(), widths.slice().reverse(), found);
+      }
     }
     // most often seen first
     var count = {};
     found.forEach(function (t) { if (t) count[t] = (count[t] || 0) + 1; });
     return Object.keys(count).sort(function (a, b) { return count[b] - count[a] || b.length - a.length; })
       .map(function (t) {
-        var done = t.slice(-1) === '\u0001';
-        return {text: done ? t.slice(0, -1) : t, complete: done};
+        var mark = t.slice(-1), done = mark === '\u0001', headless = mark === '\u0002';
+        return {text: done || headless ? t.slice(0, -1) : t, complete: done, headless: headless, count: count[t]};
       });
   };
 })();

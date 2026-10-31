@@ -79,7 +79,7 @@
 <body>
 <header>
   <div class="bar">
-    <span id="ver">v16</span>
+    <span id="ver">v17</span>
     <span class="qbox">
       <input id="q" type="search" placeholder="货号 或 国家" autocomplete="off" autocapitalize="characters">
       <button id="clearQ" type="button" aria-label="清除">✕</button>
@@ -378,9 +378,8 @@ function found(text) {
   if (!stream) return;
   stopScan(); pick(styleFrom(text));
   if (cutWarning) {
-    out.insertAdjacentHTML('afterbegin', '<div class="miss">⚠ 条码不完整（标签边缘截掉了一段），' +
-      '已按价格表里的货号匹配，请核对标签上的货号</div>');
-    cutWarning = false;
+    out.insertAdjacentHTML('afterbegin', '<div class="miss">' + esc(cutWarning) + '</div>');
+    cutWarning = '';
   }
   if (!out.querySelector('.card')) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 }
@@ -413,34 +412,53 @@ function withZbar() {
   ctx.drawImage(video, 0, Math.round((vh - sh) / 2), sw, sh, -w / 2, -h / 2, w, h); ctx.restore();
   var img = ctx.getImageData(0, 0, w, h);
   return zbarWasm.scanImageData(img).then(function (codes) {
-    if (codes.length) return codes[0].decode();
+    if (codes.length) { zbarMisses = 0; return codes[0].decode(); }
+    zbarMisses++;
     return cutLabel(img) || (frameNo % 4 ? null : throughStaple(img));
   });
 }
 
-// Long codes are printed wider than the label, so the end of the barcode is
-// missing and ZBar refuses it. CUT128 (cut128.js) reads what is there; with no
-// check character we only trust a reading that is a 货号 in the price table.
+// Long codes are printed wider than the label, so the end (and sometimes the
+// start) of the barcode is missing and ZBar refuses it. When ZBar has failed
+// on 6 frames in a row, CUT128 (cut128.js) reads what is there and we take
+// the style part read most often (on 2+ lines, 4+ characters). With no check
+// character it may be wrong or partial, so it goes into the search box with a
+// warning: one 货号 that contains it opens, several are listed to pick from.
 function cutLabel(img) {
-  if (!data) return null;
+  if (!data || zbarMisses < 6) return null;
   var w = img.width, h = img.height, px = img.data, gray = new Uint8Array(w * h);
   for (var i = 0; i < w * h; i++) gray[i] = (px[4 * i] * 77 + px[4 * i + 1] * 150 + px[4 * i + 2] * 29) >> 8;
-  var reads = CUT128(gray, w, h), k = col(KEY_TITLE);
-  for (var t = 0; t < reads.length; t++) {
-    // The style part must be whole: either the stop pattern was seen, or a ~
-    // comes after it. Otherwise B75398A cut to B75398 could match a different 货号.
-    var parts = reads[t].text.split('~'), at = -1;
-    for (var p = 0; p < parts.length; p++) if ((parts[p].match(/\d/g) || []).length >= 3) { at = p; break; }
-    if (at < 0 || !(reads[t].complete || at < parts.length - 1)) continue;
-    var s = norm(parts[at]);
-    if (s.length >= 4 && data.rows.some(function (r) { return norm(r[k]) === s; })) {
-      cutWarning = true;
-      return reads[t].text;
-    }
-  }
-  return null;
+  var k = col(KEY_TITLE), times = {};
+  CUT128(gray, w, h).forEach(function (r) {
+    var parts = r.text.split('~'), at = styleAt(parts);
+    if (at < 0) return;
+    var seen = norm(parts[at]);
+    if (seen.length >= 4) times[seen] = (times[seen] || 0) + r.count;
+  });
+  // 货号 in the table that contain this reading
+  var fitsOf = function (seen) {
+    var fits = {};
+    data.rows.forEach(function (r) { var v = norm(r[k]); if (v.indexOf(seen) >= 0) fits[v] = 1; });
+    return Object.keys(fits);
+  };
+  // most often read, but a reading the table knows beats one it doesn't
+  // (the code set at a cut start is a guess: B71012 can come out as 901012)
+  var best = '', bestFits = 0;
+  Object.keys(times).forEach(function (seen) {
+    if (times[seen] < 2) return;
+    var n = fitsOf(seen).length ? 1 : 0;
+    if (!best || n > bestFits || (n === bestFits && times[seen] > times[best])) { best = seen; bestFits = n; }
+  });
+  if (!best) return null;
+  var list = fitsOf(best);
+  cutWarning = '⚠ 条码不完整（标签边缘截掉了），只读到「' + best + '」，请核对标签上的货号';
+  return list.length === 1 ? list[0] : best;
 }
-var cutWarning = false;
+function styleAt(parts) {
+  for (var p = 0; p < parts.length; p++) if ((parts[p].match(/\d/g) || []).length >= 3) return p;
+  return -1;
+}
+var cutWarning = '', zbarMisses = 0;
 
 // Samples get stapled over their barcode. A slanted staple hides each column
 // of the bars in only a few rows, so for every strip of 32 rows (middle part

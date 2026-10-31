@@ -1,7 +1,7 @@
 // Keeps the page working with no internet: every file is saved on the phone.
 // Change VERSION whenever a file changes, so phones fetch the new copy;
 // also change the number shown in index.html (id="ver", left of the search box) to match.
-var VERSION = 'fair-v16';
+var VERSION = 'fair-v17';
 var FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png',
              'lib/xlsx.full.min.js', 'lib/zbar.js', 'cut128.js'];
 
