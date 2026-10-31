@@ -17,6 +17,7 @@
   header { position: sticky; top: 0; z-index: 2; background: var(--blue); color: #fff;
            padding: 10px 12px calc(10px); padding-top: max(10px, env(safe-area-inset-top)); }
   .bar { display: flex; gap: 8px; }
+  #ver { align-self: center; font-size: 13px; font-weight: 600; opacity: .85; }
   .qbox { flex: 1; min-width: 0; position: relative; display: flex; }
   #clearQ { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: none;
             width: 26px; height: 26px; padding: 0; border-radius: 50%; background: #b8c1ca;
@@ -78,13 +79,14 @@
 <body>
 <header>
   <div class="bar">
+    <span id="ver">v16</span>
     <span class="qbox">
       <input id="q" type="search" placeholder="货号 或 国家" autocomplete="off" autocapitalize="characters">
       <button id="clearQ" type="button" aria-label="清除">✕</button>
     </span>
     <button id="scanBtn">扫码</button>
   </div>
-  <div id="info"><span id="dataInfo">还没有数据</span><span><span id="ver">v15</span> · <a href="#" id="importLink">导入Excel</a></span></div>
+  <div id="info"><span id="dataInfo">还没有数据</span><a href="#" id="importLink">导入Excel</a></div>
   <input id="file" type="file" accept=".xlsx,.xls,.csv" hidden>
 </header>
 <main id="out"></main>
