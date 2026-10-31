@@ -1,8 +1,8 @@
 // Keeps the page working with no internet: every file is saved on the phone.
 // Change VERSION whenever a file changes, so phones fetch the new copy.
-var VERSION = 'fair-v13';
+var VERSION = 'fair-v14';
 var FILES = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png',
-             'lib/xlsx.full.min.js', 'lib/zbar.js'];
+             'lib/xlsx.full.min.js', 'lib/zbar.js', 'cut128.js'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(FILES); }));

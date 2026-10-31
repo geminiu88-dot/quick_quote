@@ -97,6 +97,7 @@
 
 <script src="lib/xlsx.full.min.js"></script>
 <script src="lib/zbar.js"></script>
+<script src="cut128.js"></script>
 <script>
 // All data stays on this phone: the Excel is read here and kept in localStorage.
 // Columns are found by their title text, so the sheet's column order can change.
@@ -351,7 +352,7 @@ function card(r) {
 var video = document.getElementById('video'), scanBox = document.getElementById('scan');
 var stream = null, canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', {willReadFrequently: true});
 var FORMATS = ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'upc_a', 'itf', 'qr_code'];
-var ANGLES = [0, 15, -15, 30, -30];   // degrees; one per frame, in turn
+var ANGLES = [0, 15, 0, -15, 0, 30, 0, -30];   // degrees, one per frame in turn; level every 2nd frame
 var native = null, frameNo = 0;
 if ('BarcodeDetector' in window) {
   try { native = new BarcodeDetector({formats: FORMATS}); } catch (e) { native = null; }
@@ -359,7 +360,7 @@ if ('BarcodeDetector' in window) {
 
 document.getElementById('scanBtn').onclick = function () {
   if (!navigator.mediaDevices) { alert('这个浏览器不能用摄像头，请用 Safari 或 Chrome 打开'); return; }
-  navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment', width: {ideal: 1280}}}).then(function (s) {
+  navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment', width: {ideal: 1920}, height: {ideal: 1080}}}).then(function (s) {
     stream = s; video.srcObject = s; scanBox.style.display = 'block';
     video.play(); setTimeout(tick, 200);
   }).catch(function () { alert('没有摄像头权限'); });
@@ -374,6 +375,11 @@ function stopScan() {
 function found(text) {
   if (!stream) return;
   stopScan(); pick(styleFrom(text));
+  if (cutWarning) {
+    out.insertAdjacentHTML('afterbegin', '<div class="miss">⚠ 条码不完整（标签边缘截掉了一段），' +
+      '已按价格表里的货号匹配，请核对标签上的货号</div>');
+    cutWarning = false;
+  }
   if (!out.querySelector('.card')) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 }
 function again() { if (stream) setTimeout(tick, 60); }
@@ -391,20 +397,48 @@ function tick() {
   }).catch(again);
 }
 
-// Draw the camera picture turned by this frame's angle, at most 800 px wide.
+// The middle of the camera picture (where the frame is drawn), turned by this
+// frame's angle, at full camera sharpness. Shrinking the whole picture made
+// the bars too thin on phones held upright (720x1280): most scans failed.
 function withZbar() {
-  var vw = video.videoWidth, vh = video.videoHeight, k = Math.min(1, 800 / Math.max(vw, vh));
-  var w = Math.round(vw * k), h = Math.round(vh * k), a = ANGLES[frameNo % ANGLES.length] * Math.PI / 180;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var sw = vw, sh = Math.min(vh, Math.round(vw * 0.75));      // a wide strip across the middle
+  var k = Math.min(1, 1280 / sw), w = Math.round(sw * k), h = Math.round(sh * k);
+  var a = ANGLES[frameNo % ANGLES.length] * Math.PI / 180;
   canvas.width = w; canvas.height = h;
   ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, w, h);
   ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(a);
-  ctx.drawImage(video, -w / 2, -h / 2, w, h); ctx.restore();
+  ctx.drawImage(video, 0, Math.round((vh - sh) / 2), sw, sh, -w / 2, -h / 2, w, h); ctx.restore();
   var img = ctx.getImageData(0, 0, w, h);
   return zbarWasm.scanImageData(img).then(function (codes) {
     if (codes.length) return codes[0].decode();
-    return frameNo % 2 ? null : throughStaple(img);
+    return cutLabel(img) || (frameNo % 4 ? null : throughStaple(img));
   });
 }
+
+// Long codes are printed wider than the label, so the end of the barcode is
+// missing and ZBar refuses it. CUT128 (cut128.js) reads what is there; with no
+// check character we only trust a reading that is a 货号 in the price table.
+function cutLabel(img) {
+  if (!data) return null;
+  var w = img.width, h = img.height, px = img.data, gray = new Uint8Array(w * h);
+  for (var i = 0; i < w * h; i++) gray[i] = (px[4 * i] * 77 + px[4 * i + 1] * 150 + px[4 * i + 2] * 29) >> 8;
+  var reads = CUT128(gray, w, h), k = col(KEY_TITLE);
+  for (var t = 0; t < reads.length; t++) {
+    // The style part must be whole: either the stop pattern was seen, or a ~
+    // comes after it. Otherwise B75398A cut to B75398 could match a different 货号.
+    var parts = reads[t].text.split('~'), at = -1;
+    for (var p = 0; p < parts.length; p++) if ((parts[p].match(/\d/g) || []).length >= 3) { at = p; break; }
+    if (at < 0 || !(reads[t].complete || at < parts.length - 1)) continue;
+    var s = norm(parts[at]);
+    if (s.length >= 4 && data.rows.some(function (r) { return norm(r[k]) === s; })) {
+      cutWarning = true;
+      return reads[t].text;
+    }
+  }
+  return null;
+}
+var cutWarning = false;
 
 // Samples get stapled over their barcode. A slanted staple hides each column
 // of the bars in only a few rows, so for every strip of 32 rows (middle part

@@ -35,3 +35,11 @@ Countries: import the 市场区分表 (columns 组别, 国别, 英文国别, 小
 same 「导入Excel」 button; it is recognised by its titles and kept on the phone.
 Search text without digits looks up countries (Chinese or English, part of the
 name; USA / UK / UAE work too) and shows the group (组别).
+
+Cut-off labels: long codes (12+ characters) are printed wider than the label,
+so the end of the barcode is missing and normal readers refuse them.
+`cut128.js` reads Code 128 from the start pattern as far as the bars go. Such a
+reading is used only if the whole style no is visible (a `~` follows it, or the
+stop pattern was seen) and that 货号 is in the price table; the app then shows a
+⚠ 条码不完整 warning. The camera is asked for 1080p and the middle of the picture
+is read at full sharpness (dense labels failed when the picture was shrunk).
