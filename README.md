@@ -20,7 +20,8 @@ or type it, and see that style's quote prices.
   SheetJS `xlsx` 0.18.5 (reads Excel), ZBar `@undecaf/zbar-wasm` 0.11.0 (barcodes, the
   `dist/inlined` build: one file, no separate .wasm).
   Android Chrome uses its built-in BarcodeDetector instead.
-- After changing any file, bump `VERSION` in `sw.js` so phones fetch the new copy.
+- After changing any file, bump `VERSION` in `sw.js` so phones fetch the new copy,
+  and the version shown in `index.html` (`id="ver"`, top right) to the same number.
 
 Install on a phone: open the page once with internet, Safari Share → 添加到主屏幕
 (iPhone) or Chrome menu → 安装应用 (Android), then 导入Excel.
