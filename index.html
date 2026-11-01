@@ -79,7 +79,7 @@
 <body>
 <header>
   <div class="bar">
-    <span id="ver">v17</span>
+    <span id="ver">v18</span>
     <span class="qbox">
       <input id="q" type="search" placeholder="货号 或 国家" autocomplete="off" autocapitalize="characters">
       <button id="clearQ" type="button" aria-label="清除">✕</button>
@@ -176,7 +176,7 @@ var COUNTRIES = 'fair-countries';
 var ALIASES = {USA: 'UNITEDSTATESOFAMERICA', US: 'UNITEDSTATESOFAMERICA', AMERICA: 'UNITEDSTATESOFAMERICA',
                UK: 'UNITEDKINGDOM', BRITAIN: 'UNITEDKINGDOM', ENGLAND: 'UNITEDKINGDOM',
                UAE: 'UNITEDARABEMIRATES', KOREA: 'KOREA,SOUTH', '英格兰': 'UNITEDKINGDOM'};
-var countries = null;   // [[组别, 国别, 英文国别, 小区, 大区], ...]
+var countries = null;   // [[组别, 国别, 英文国别, 小区, 大区, 人口(万)], ...]
 try { countries = JSON.parse(localStorage.getItem(COUNTRIES)); } catch (e) { countries = null; }
 
 function titleRow(grid) {
@@ -188,14 +188,22 @@ function isCountrySheet(grid) { return titleRow(grid) >= 0; }
 function saveCountries(grid, file) {
   var head = titleRow(grid), t = grid[head].map(clean);
   var at = function (name) { return t.indexOf(name); };
-  var cols = [at('组别'), at('国别'), at('英文国别'), at('小区'), at('大区')];
+  var cols = [at('组别'), at('国别'), at('英文国别'), at('小区'), at('大区'), at('人口(万)')];
   countries = grid.slice(head + 1).filter(function (r) { return clean(r[cols[1]]); }).map(function (r) {
-    return cols.map(function (i) { return i >= 0 ? String(r[i]).trim() : ''; });
+    return cols.map(function (i) { return i >= 0 && r[i] != null ? String(r[i]).trim() : ''; });
   });
   try { localStorage.setItem(COUNTRIES, JSON.stringify(countries)); }
   catch (e) { alert('手机存储空间不够，这次导入只在页面打开时有效'); }
   showInfo();
   out.innerHTML = '<p class="empty">已导入国家表 ' + countries.length + ' 个国家/地区（' + esc(file) + '）</p>';
+}
+// 人口(万) from the table -> "14.1亿", "8460万", "500人"; '' when empty
+function people(wan) {
+  var n = parseFloat(wan);
+  if (!(n > 0)) return '';
+  if (n >= 10000) return (n / 10000).toFixed(1) + '亿';
+  if (n >= 1) return Math.round(n) + '万';
+  return Math.round(n * 10000) + '人';
 }
 function showCountries(s) {
   var target = ALIASES[s];
@@ -211,7 +219,8 @@ function showCountries(s) {
   });
   if (!hits.length) { out.innerHTML = '<div class="miss">国家表里没有 <b>' + esc(s) + '</b>，试试中文或英文名</div>'; return; }
   out.innerHTML = hits.slice(0, 20).map(function (c) {
-    return '<div class="country"><b>' + esc(c[0] || '—') + '</b><div>' + esc(c[1]) + ' · ' + esc(c[2]) + '</div>' +
+    return '<div class="country"><b>' + esc(c[0] || '—') + '</b><div>' + esc(c[1]) + ' · ' + esc(c[2]) +
+      (people(c[5]) ? ' · 人口 ' + people(c[5]) : '') + '</div>' +
       '<span>' + esc([c[3], c[4]].filter(Boolean).join(' · ')) + (c[0] === '不填' ? ' · 美国市场不填组别' : '') + '</span></div>';
   }).join('');
 }
